@@ -1,6 +1,6 @@
 # RamLight
 
-Lekki monitor RAM dla Windows 11. W zasobniku pokazuje kolor stanu pamięci; kliknięcie otwiera chwilowe okno z trendem i procesami zużywającymi najwięcej RAM. Zamknięcie okna niszczy WebView2, więc w tle pozostaje tylko proces Rust. Interfejs jest po polsku.
+Lekki monitor RAM dla Windows 11. W zasobniku pokazuje literę **R** w kolorze stanu pamięci; kliknięcie otwiera chwilowe okno z trendem i procesami zużywającymi najwięcej RAM. Zamknięcie okna niszczy WebView2, więc w tle pozostaje tylko proces Rust. Interfejs jest po polsku.
 
 ## Pobierz
 
@@ -19,7 +19,21 @@ Rezerwa `R = max(1 GiB, 8% całego RAM)`. Slot typowego procesu `S = 2 GiB` domy
 
 Commit charge ≥90% wymusza co najmniej pomarańczowy, a ≥97% czerwony. Zmiana koloru wymaga dwóch kolejnych zgodnych pomiarów. Trend to regresja liniowa z ostatnich pięciu minut.
 
-Lista grupuje procesy według nazwy i sumuje ich working set. Przycisk **Ubij** wymaga potwierdzenia. Procesy systemowe i sam RamLight są chronione również po stronie Rust. Używaj funkcji kończenia ostrożnie: niezapisane dane procesu mogą przepaść.
+## Co wolno ubić
+
+Lista grupuje procesy według nazwy i sumuje ich working set. Każda grupa ma kolor z wbudowanego katalogu (`categorize()` w `src-tauri/src/main.rs`):
+
+| Kolor | Kategoria | Przykłady | Co się dzieje po kliknięciu „Ubij” |
+| --- | --- | --- | --- |
+| Zielony | bezpieczny | Chrome, Edge, Brave, Discord, Slack, Spotify, Notion, launchery gier | zwykłe potwierdzenie; po ponownym uruchomieniu wszystko wraca (sprawdź tylko, czy nic się nie pobiera) |
+| Żółty | ryzyko | VS Code, Word, Excel, Notatnik, WebView2 innych aplikacji, `node.exe`, OneDrive, Docker | potwierdzenie z ostrzeżeniem o niezapisanych zmianach |
+| Pomarańczowy | nie ubijaj | `ffmpeg`, `python`, DaVinci Resolve, OBS, Claude, Codex, kompilacja, pakowanie archiwum, instalator | potwierdzenie „stracisz pracę w toku” |
+| Czerwony | system | `svchost`, `csrss`, `lsass`, `dwm`, `explorer`, Memory Compression | brak przycisku; Rust odrzuca ubicie także przy ręcznym wywołaniu |
+| Szary | nieznany | wszystko spoza katalogu | potwierdzenie „nie wiem, co to jest” |
+
+Przycisk **Ubij wszystkie zbędne** ubija tylko zielone. Listę liczy od nowa Rust w chwili kliknięcia, więc żółte, pomarańczowe, szare i systemowe zostają nietknięte. Katalog łatwo rozszerzyć – pull requesty z kolejnymi programami mile widziane.
+
+Używaj ubijania z głową: proces kończony siłowo nie zapisuje danych.
 
 Ustawienia są w `%APPDATA%\RamLight\settings.json`. Przy pierwszym uruchomieniu RamLight włącza autostart; można go przełączyć w menu zasobnika.
 

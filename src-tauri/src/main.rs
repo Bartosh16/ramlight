@@ -96,35 +96,160 @@ fn level_for(available: u64, total: u64, slot: u64, commit: f64) -> Level {
     }
 }
 
-fn protected(name: &str, pid: u32) -> bool {
+/// Katalog procesow: czy ubicie jest bezpieczne. Kolejnosc od najbezpieczniejszego.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+enum Category {
+    /// Zielony: po ponownym uruchomieniu wszystko wraca (przegladarki, komunikatory).
+    Safe,
+    /// Zolty: moze miec niezapisane zmiany albo jest oknem innej aplikacji.
+    Risky,
+    /// Pomaranczowy: trwajaca praca (render, skrypt, agent) - ubicie = strata wyniku.
+    Keep,
+    /// Czerwony: system Windows - ubicie wywali sesje albo komputer. Nie da sie ubic.
+    Essential,
+    /// Szary: nie wiadomo, co to jest - lepiej zostawic.
+    Unknown,
+}
+
+const SAFE: &[(&str, &str)] = &[
+    ("chrome.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("msedge.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("brave.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("firefox.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("opera.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("vivaldi.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("arc.exe", "Przeglądarka – sprawdź, czy nic się nie pobiera"),
+    ("discord.exe", "Komunikator – po starcie wszystko wróci"),
+    ("slack.exe", "Komunikator – po starcie wszystko wróci"),
+    ("ms-teams.exe", "Komunikator – nie ubijaj w trakcie rozmowy"),
+    ("teams.exe", "Komunikator – nie ubijaj w trakcie rozmowy"),
+    ("telegram.exe", "Komunikator – po starcie wszystko wróci"),
+    ("beeper.exe", "Komunikator – po starcie wszystko wróci"),
+    ("whatsapp.exe", "Komunikator – po starcie wszystko wróci"),
+    ("messenger.exe", "Komunikator – po starcie wszystko wróci"),
+    ("spotify.exe", "Muzyka – po starcie wszystko wróci"),
+    ("notion.exe", "Notion zapisuje w chmurze na bieżąco"),
+    ("steam.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("steamwebhelper.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("epicgameslauncher.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("epicwebhelper.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("upc.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("ubisoftconnect.exe", "Launcher gier – sprawdź, czy nic się nie pobiera"),
+    ("widgets.exe", "Widżety Windows – uruchomią się same"),
+    ("phoneexperiencehost.exe", "Łącze z telefonem – uruchomi się samo"),
+];
+
+const RISKY: &[(&str, &str)] = &[
+    ("msedgewebview2.exe", "Okno innej aplikacji (Claude, Teams, widgety) – zamkniesz jej część"),
+    ("code.exe", "Edytor – może mieć niezapisane pliki"),
+    ("cursor.exe", "Edytor – może mieć niezapisane pliki"),
+    ("windsurf.exe", "Edytor – może mieć niezapisane pliki"),
+    ("antigravity.exe", "Edytor – może mieć niezapisane pliki"),
+    ("pycharm64.exe", "Edytor – może mieć niezapisane pliki"),
+    ("idea64.exe", "Edytor – może mieć niezapisane pliki"),
+    ("notepad.exe", "Notatnik – może mieć niezapisany tekst"),
+    ("notepad++.exe", "Notatnik – może mieć niezapisany tekst"),
+    ("winword.exe", "Word – może mieć niezapisany dokument"),
+    ("excel.exe", "Excel – może mieć niezapisany arkusz"),
+    ("powerpnt.exe", "PowerPoint – może mieć niezapisaną prezentację"),
+    ("onenote.exe", "OneNote – zwykle zapisuje sam, ale sprawdź"),
+    ("outlook.exe", "Poczta – może mieć niewysłany szkic"),
+    ("olk.exe", "Poczta – może mieć niewysłany szkic"),
+    ("obsidian.exe", "Notatki – zwykle zapisuje sam, ale sprawdź"),
+    ("figma.exe", "Figma – sprawdź, czy wszystko zsynchronizowane"),
+    ("chatgpt.exe", "Czat – przerwiesz trwającą odpowiedź"),
+    ("node.exe", "Serwer dev albo MCP – może przerwać pracę agenta"),
+    ("onedrive.exe", "Synchronizacja plików – przerwiesz wysyłanie"),
+    ("googledrivefs.exe", "Synchronizacja plików – przerwiesz wysyłanie"),
+    ("docker desktop.exe", "Docker – zatrzymasz kontenery"),
+    ("com.docker.backend.exe", "Docker – zatrzymasz kontenery"),
+    ("vmmem", "WSL / Docker – zatrzymasz maszyny wirtualne"),
+    ("vmmemwsl", "WSL / Docker – zatrzymasz maszyny wirtualne"),
+    ("postgres.exe", "Baza danych – może przerwać zapis"),
+    ("ollama.exe", "Model AI w pamięci – przerwiesz generowanie"),
+    ("ollama app.exe", "Model AI w pamięci – przerwiesz generowanie"),
+    ("focuswidget.exe", "FocusWidget – przerwiesz śledzenie czasu"),
+    ("rize.exe", "Śledzenie czasu – stracisz bieżący wpis"),
+    ("fathom.exe", "Nagrywanie spotkań – nie ubijaj w trakcie rozmowy"),
+    ("zoom.exe", "Wideorozmowa – nie ubijaj w trakcie rozmowy"),
+];
+
+const KEEP: &[(&str, &str)] = &[
+    ("ffmpeg.exe", "Render lub konwersja wideo – stracisz wynik"),
+    ("ffprobe.exe", "Analiza wideo – część większego zadania"),
+    ("python.exe", "Skrypt Pythona – może liczyć coś długo"),
+    ("pythonw.exe", "Skrypt Pythona – może liczyć coś długo"),
+    ("py.exe", "Skrypt Pythona – może liczyć coś długo"),
+    ("resolve.exe", "DaVinci Resolve – stracisz niezapisany montaż"),
+    ("obs64.exe", "OBS – przerwiesz nagrywanie"),
+    ("audacity.exe", "Audacity – stracisz niezapisane nagranie"),
+    ("handbrake.exe", "Konwersja wideo – stracisz wynik"),
+    ("blender.exe", "Blender – stracisz render i niezapisaną scenę"),
+    ("adobe premiere pro.exe", "Premiere – stracisz niezapisany montaż"),
+    ("afterfx.exe", "After Effects – stracisz render"),
+    ("photoshop.exe", "Photoshop – stracisz niezapisaną grafikę"),
+    ("claude.exe", "Claude – przerwiesz pracujące sesje i agentów"),
+    ("codex.exe", "Codex – przerwiesz pracującego agenta"),
+    ("cargo.exe", "Kompilacja – zacznie się od nowa"),
+    ("rustc.exe", "Kompilacja – zacznie się od nowa"),
+    ("7z.exe", "Pakowanie archiwum – plik będzie uszkodzony"),
+    ("7zg.exe", "Pakowanie archiwum – plik będzie uszkodzony"),
+    ("winrar.exe", "Pakowanie archiwum – plik będzie uszkodzony"),
+    ("robocopy.exe", "Kopiowanie plików – przerwiesz w połowie"),
+    ("msiexec.exe", "Instalator – przerwana instalacja psuje program"),
+    ("tiworker.exe", "Aktualizacja Windows – nie przerywaj"),
+];
+
+const ESSENTIAL: &[(&str, &str)] = &[
+    ("system", "Jądro Windows"),
+    ("registry", "Rejestr Windows"),
+    ("memory compression", "Kompresja pamięci Windows – to ona oszczędza RAM"),
+    ("secure system", "Ochrona systemu"),
+    ("smss.exe", "Menedżer sesji – ubicie = niebieski ekran"),
+    ("csrss.exe", "Podsystem Windows – ubicie = niebieski ekran"),
+    ("wininit.exe", "Start Windows – ubicie = niebieski ekran"),
+    ("winlogon.exe", "Logowanie – ubicie wyloguje cię"),
+    ("services.exe", "Menedżer usług – ubicie = niebieski ekran"),
+    ("lsass.exe", "Bezpieczeństwo i hasła – ubicie = restart"),
+    ("lsaiso.exe", "Bezpieczeństwo i hasła – ubicie = restart"),
+    ("svchost.exe", "Usługi Windows (sieć, dźwięk, aktualizacje)"),
+    ("dwm.exe", "Rysowanie okien – ekran zgaśnie"),
+    ("explorer.exe", "Pulpit i pasek zadań"),
+    ("fontdrvhost.exe", "Czcionki"),
+    ("sihost.exe", "Powłoka Windows"),
+    ("ctfmon.exe", "Klawiatura i wprowadzanie tekstu"),
+    ("msmpeng.exe", "Antywirus Windows"),
+    ("audiodg.exe", "Dźwięk"),
+    ("spoolsv.exe", "Drukowanie"),
+    ("wmiprvse.exe", "Zarządzanie systemem"),
+    ("securityhealthservice.exe", "Zabezpieczenia Windows"),
+    ("taskhostw.exe", "Zadania systemowe"),
+    ("conhost.exe", "Okno konsoli – zamknie terminal"),
+    ("ramlight.exe", "RamLight – to ja"),
+];
+
+/// Zwraca kategorie i krotkie wyjasnienie dla nazwy procesu.
+fn categorize(name: &str, pid: u32) -> (Category, &'static str) {
     if pid == std::process::id() {
-        return true;
+        return (Category::Essential, "RamLight – to ja");
     }
-    const NAMES: &[&str] = &[
-        "system",
-        "registry",
-        "smss.exe",
-        "csrss.exe",
-        "wininit.exe",
-        "winlogon.exe",
-        "services.exe",
-        "lsass.exe",
-        "svchost.exe",
-        "dwm.exe",
-        "explorer.exe",
-        "fontdrvhost.exe",
-        "memory compression",
-        "sihost.exe",
-        "ctfmon.exe",
-        "msmpeng.exe",
-        "audiodg.exe",
-        "spoolsv.exe",
-        "wmiprvse.exe",
-        "securityhealthservice.exe",
-        "ramlight.exe",
-        "ramlight",
-    ];
-    NAMES.iter().any(|n| name.eq_ignore_ascii_case(n))
+    let lower = name.to_lowercase();
+    for (list, category) in [
+        (ESSENTIAL, Category::Essential),
+        (KEEP, Category::Keep),
+        (RISKY, Category::Risky),
+        (SAFE, Category::Safe),
+    ] {
+        if let Some((_, hint)) = list.iter().find(|(n, _)| *n == lower) {
+            return (category, hint);
+        }
+    }
+    (Category::Unknown, "Nieznany proces – lepiej zostaw")
+}
+
+fn protected(name: &str, pid: u32) -> bool {
+    categorize(name, pid).0 == Category::Essential
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -172,7 +297,16 @@ struct Group {
     count: usize,
     uptime_secs: u64,
     protected: bool,
+    category: Category,
+    hint: &'static str,
     pids: Vec<PidRow>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafeSummary {
+    count: usize,
+    bytes: u64,
+    names: Vec<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -186,6 +320,7 @@ struct Snapshot {
     commit_percent: f64,
     trend: Trend,
     groups: Vec<Group>,
+    safe: SafeSummary,
     reserve_bytes: u64,
     slot_bytes: u64,
 }
@@ -341,17 +476,54 @@ fn commit_percent() -> f64 {
     }
 }
 
+/// Czy punkt (x, y) na siatce 32x32 lezy w literze "R" pogrubionej o `grow` px.
+/// Litera: pionowa kreska, brzuszek (polpierscien + dwie poprzeczki) i ukosna noga.
+fn in_letter_r(x: f64, y: f64, grow: f64) -> bool {
+    let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        x >= x0 - grow && x <= x1 + grow && y >= y0 - grow && y <= y1 + grow
+    };
+    let stem = rect(5.0, 3.0, 12.0, 29.0);
+    let top = rect(5.0, 3.0, 18.0, 9.5);
+    let middle = rect(5.0, 15.5, 18.0, 22.0);
+    let (cx, cy) = (18.0, 12.5);
+    let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+    let bowl = x >= cx && d <= 9.5 + grow && d >= 3.0 - grow;
+    // Noga: odcinek od srodka brzuszka do prawego dolnego rogu.
+    let (ax, ay, bx, by) = (15.0, 20.0, 25.0, 28.0);
+    let t = (((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax).powi(2) + (by - ay).powi(2))).clamp(0.0, 1.0);
+    let leg = ((x - (ax + t * (bx - ax))).powi(2) + (y - (ay + t * (by - ay))).powi(2)).sqrt() <= 3.6 + grow;
+    stem || top || middle || bowl || leg
+}
+
+/// Ikona zasobnika: litera "R" w kolorze poziomu z ciemnym obrysem (czytelna na jasnym
+/// i ciemnym pasku). Wygladzanie przez probkowanie 4x4 na piksel.
 fn icon(level: Level) -> tauri::image::Image<'static> {
     let mut rgba = vec![0u8; 32 * 32 * 4];
     let c = level.color();
     for y in 0..32 {
         for x in 0..32 {
-            let d = (((x as f64 + 0.5) - 16.0).powi(2) + ((y as f64 + 0.5) - 16.0).powi(2)).sqrt();
-            let a = ((15.0 - d) * 255.0).clamp(0.0, 255.0) as u8;
-            let rgb = if d > 12.5 { [0x0a, 0x0d, 0x12] } else { c };
+            let (mut fill, mut outline) = (0u32, 0u32);
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let (px, py) = (x as f64 + (sx as f64 + 0.5) / 4.0, y as f64 + (sy as f64 + 0.5) / 4.0);
+                    if in_letter_r(px, py, 0.0) {
+                        fill += 1;
+                    } else if in_letter_r(px, py, 1.6) {
+                        outline += 1;
+                    }
+                }
+            }
             let i = (y * 32 + x) * 4;
-            rgba[i..i + 3].copy_from_slice(&rgb);
-            rgba[i + 3] = a;
+            let covered = fill + outline;
+            if covered == 0 {
+                continue;
+            }
+            // Kolor mieszany proporcjonalnie: wypelnienie vs obrys.
+            let dark = [0x0a_u32, 0x0d, 0x12];
+            for k in 0..3 {
+                rgba[i + k] = ((c[k] as u32 * fill + dark[k] * outline) / covered) as u8;
+            }
+            rgba[i + 3] = (covered * 255 / 16) as u8;
         }
     }
     tauri::image::Image::new_owned(rgba, 32, 32)
@@ -387,7 +559,7 @@ fn open_popup(app: &AppHandle) {
     }
     let builder = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("index.html".into()))
         .title("RamLight")
-        .inner_size(380.0, 560.0)
+        .inner_size(380.0, 660.0)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
@@ -401,7 +573,7 @@ fn open_popup(app: &AppHandle) {
             let work = monitor.work_area();
             let scale = monitor.scale_factor();
             let width = (380.0 * scale) as i32;
-            let height = (560.0 * scale) as i32;
+            let height = (660.0 * scale) as i32;
             let margin = (12.0 * scale) as i32;
             let _ = window.set_position(PhysicalPosition::new(
                 work.position.x + work.size.width as i32 - width - margin,
@@ -458,6 +630,7 @@ fn get_snapshot(state: tauri::State<'_, AppState>) -> Snapshot {
         commit_percent: m.commit,
         trend: m.trend(),
         groups: Vec::new(),
+        safe: SafeSummary { count: 0, bytes: 0, names: Vec::new() },
         reserve_bytes: reserve(m.total),
         slot_bytes: (m.settings.slot_gb * GIB) as u64,
     };
@@ -480,13 +653,18 @@ fn get_snapshot(state: tauri::State<'_, AppState>) -> Snapshot {
         let key = name.to_lowercase();
         let bytes = proc_.memory();
         let uptime = proc_.run_time();
-        let group = groups.entry(key).or_insert_with(|| Group {
-            name: name.clone(),
-            bytes: 0,
-            count: 0,
-            uptime_secs: 0,
-            protected: protected(&name, pid.as_u32()),
-            pids: Vec::new(),
+        let group = groups.entry(key).or_insert_with(|| {
+            let (category, hint) = categorize(&name, pid.as_u32());
+            Group {
+                name: name.clone(),
+                bytes: 0,
+                count: 0,
+                uptime_secs: 0,
+                protected: category == Category::Essential,
+                category,
+                hint,
+                pids: Vec::new(),
+            }
         });
         group.bytes += bytes;
         group.count += 1;
@@ -499,7 +677,13 @@ fn get_snapshot(state: tauri::State<'_, AppState>) -> Snapshot {
     }
     snapshot.groups = groups.into_values().collect();
     snapshot.groups.sort_by(|a, b| b.bytes.cmp(&a.bytes));
-    snapshot.groups.truncate(12);
+    // Podsumowanie zielonych liczone ze WSZYSTKICH procesow, nie tylko z top listy.
+    for g in snapshot.groups.iter().filter(|g| g.category == Category::Safe) {
+        snapshot.safe.count += g.count;
+        snapshot.safe.bytes += g.bytes;
+        snapshot.safe.names.push(g.name.clone());
+    }
+    snapshot.groups.truncate(15);
     for g in &mut snapshot.groups {
         g.pids.sort_by(|a, b| b.bytes.cmp(&a.bytes));
     }
@@ -542,6 +726,41 @@ fn kill_processes(pids: Vec<u32>) -> KillResult {
     result
 }
 
+/// Ubija wszystkie procesy z kategorii Safe (zielone). Lista liczona od nowa w Rust,
+/// wiec frontend nie moze tu przemycic niczego spoza zielonych.
+#[tauri::command]
+fn kill_all_safe() -> KillResult {
+    let mut result = KillResult {
+        killed: 0,
+        failed: 0,
+        errors: Vec::new(),
+    };
+    let mut system = System::new();
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    for (pid, p) in system.processes() {
+        let name = p.name().to_string_lossy().into_owned();
+        if categorize(&name, pid.as_u32()).0 != Category::Safe {
+            continue;
+        }
+        if p.kill() {
+            result.killed += 1;
+            continue;
+        }
+        // Proces potomny (np. karta przegladarki) mogl zniknac razem z rodzicem - to nie blad.
+        let mut check = System::new();
+        check.refresh_processes_specifics(ProcessesToUpdate::Some(&[*pid]), true, ProcessRefreshKind::nothing());
+        if check.process(*pid).is_none() {
+            result.killed += 1;
+        } else {
+            result.failed += 1;
+            if result.errors.len() < 5 {
+                result.errors.push(format!("{name} (PID {}): brak uprawnień", pid.as_u32()));
+            }
+        }
+    }
+    result
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -559,6 +778,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             kill_processes,
+            kill_all_safe,
             get_settings,
             set_settings,
             close_popup
@@ -716,5 +936,29 @@ mod tests {
         assert!(protected("anything.exe", std::process::id()));
         assert!(protected("RamLight.exe", 123));
         assert!(!protected("notepad.exe", 123));
+    }
+    #[test]
+    fn catalog() {
+        assert_eq!(categorize("Chrome.exe", 1).0, Category::Safe);
+        assert_eq!(categorize("msedgewebview2.exe", 1).0, Category::Risky);
+        assert_eq!(categorize("ffmpeg.exe", 1).0, Category::Keep);
+        assert_eq!(categorize("python.exe", 1).0, Category::Keep);
+        assert_eq!(categorize("Memory Compression", 1).0, Category::Essential);
+        assert_eq!(categorize("cos-dziwnego.exe", 1).0, Category::Unknown);
+        // Zadna nazwa nie moze siedziec w dwoch listach naraz.
+        let all: Vec<&str> = [SAFE, RISKY, KEEP, ESSENTIAL].iter().flat_map(|l| l.iter().map(|(n, _)| *n)).collect();
+        for n in &all {
+            assert_eq!(all.iter().filter(|m| *m == n).count(), 1, "duplikat: {n}");
+            assert_eq!(*n, n.to_lowercase(), "nazwa musi byc malymi literami: {n}");
+        }
+    }
+    #[test]
+    fn letter_icon_has_color_and_outline() {
+        let img = icon(Level::Red);
+        let px = img.rgba();
+        let colored = px.chunks(4).filter(|p| p[3] > 200 && p[0] == 0xef && p[1] == 0x44).count();
+        let dark = px.chunks(4).filter(|p| p[3] > 200 && p[0] == 0x0a).count();
+        assert!(colored > 150, "za malo koloru: {colored}");
+        assert!(dark > 60, "za malo obrysu: {dark}");
     }
 }
