@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Dostep do zamykania okna popup",
+  "windows": ["popup"],
+  "permissions": ["core:default", "core:window:allow-close"]
+}

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RamLight</title><link rel="stylesheet" href="style.css"></head>
+<body>
+  <main>
+    <header><div class="status"><span id="dot"></span><div><strong id="level">Ładowanie…</strong><small id="advice"></small></div></div><button id="close" aria-label="Zamknij">×</button></header>
+    <section class="panel"><div class="between"><span>RAM</span><strong id="used"></strong></div><div class="bar"><div id="fill"></div></div><div class="between muted"><span id="available"></span><span id="commit"></span></div><p id="trend" class="trend">Zbieram dane…</p></section>
+    <section class="processes"><div class="between heading"><h2>Największe procesy</h2><span>RAM</span></div><div id="groups"></div></section>
+    <footer><button id="settings-toggle" aria-label="Ustawienia">⚙ Ustawienia</button><span id="reserve"></span></footer>
+    <section id="settings" class="panel hidden"><label for="slot">Typowy proces (GB)</label><div class="between"><input id="slot" type="number" min="0.5" max="16" step="0.5"><button id="save">Zapisz</button></div><small>Próg rezerwy: <span id="reserve-detail"></span></small></section>
+  </main><div id="toast" role="status"></div><script src="app.js"></script>
+</body></html>
