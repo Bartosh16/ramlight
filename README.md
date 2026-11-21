@@ -2,6 +2,10 @@
 
 Lekki monitor RAM dla Windows 11. W zasobniku pokazuje kolor stanu pamięci; kliknięcie otwiera chwilowe okno z trendem i procesami zużywającymi najwięcej RAM. Zamknięcie okna niszczy WebView2, więc w tle pozostaje tylko proces Rust. Interfejs jest po polsku.
 
+## Pobierz
+
+Gotowy plik exe jest w [Releases](https://github.com/Bartosh16/ramlight/releases/latest). Wrzuć go do dowolnego folderu i uruchom. Plik nie jest podpisany, więc Windows SmartScreen pokaże ostrzeżenie: „Więcej informacji” → „Uruchom mimo to”. Kto woli nie ufać binarce, buduje ze źródeł (sekcja „Budowanie”).
+
 ## Progi
 
 Rezerwa `R = max(1 GiB, 8% całego RAM)`. Slot typowego procesu `S = 2 GiB` domyślnie; można go zmienić w ustawieniach od 0,5 do 16 GB. Poziomy liczone są z wolnej pamięci uśrednionej z trzech pomiarów co 2 sekundy:
