@@ -174,6 +174,12 @@ async function refresh() {
 }
 
 $('close').onclick = () => invoke('close_popup');
+// Klik poza oknem (inna aplikacja, pulpit, pasek zadan) zamyka popup. Krotka karencja
+// po starcie, bo przy otwieraniu fokus potrafi chwile skakac.
+const openedAt = Date.now();
+window.addEventListener('blur', () => {
+  if (Date.now() - openedAt > 600) invoke('close_popup');
+});
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (confirming) { confirming = null; render(snapshot); } else invoke('close_popup');

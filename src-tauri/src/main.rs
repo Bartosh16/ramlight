@@ -552,11 +552,37 @@ fn toggle_popup(app: &AppHandle) {
     open_popup(app);
 }
 
+/// Dopisuje linie do %APPDATA%\RamLight\ramlight.log (diagnostyka bez konsoli).
+fn log_line(msg: &str) {
+    use std::io::Write;
+    let path = settings_path().with_file_name("ramlight.log");
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let _ = writeln!(f, "{secs} {msg}");
+    }
+}
+
+static POPUP_OPENING: AtomicBool = AtomicBool::new(false);
+
+/// Na Windows budowanie okna WebView2 wprost w obsludze zdarzenia zasobnika/menu
+/// (glowny watek) blokuje sie i okno nigdy nie powstaje. Dlatego budujemy je
+/// z osobnego watku - Tauri przekazuje to do petli zdarzen.
 fn open_popup(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("popup") {
         let _ = w.set_focus();
         return;
     }
+    if POPUP_OPENING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        build_popup(&app);
+        POPUP_OPENING.store(false, Ordering::SeqCst);
+    });
+}
+
+fn build_popup(app: &AppHandle) {
     let builder = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("index.html".into()))
         .title("RamLight")
         .inner_size(380.0, 660.0)
@@ -565,7 +591,14 @@ fn open_popup(app: &AppHandle) {
         .skip_taskbar(true)
         .resizable(false)
         .visible(false);
-    if let Ok(window) = builder.build() {
+    let window = match builder.build() {
+        Ok(window) => window,
+        Err(e) => {
+            log_line(&format!("popup: build failed: {e}"));
+            return;
+        }
+    };
+    {
         if let Ok(Some(monitor)) = window
             .current_monitor()
             .or_else(|_| window.primary_monitor())
@@ -580,7 +613,9 @@ fn open_popup(app: &AppHandle) {
                 work.position.y + work.size.height as i32 - height - margin,
             ));
         }
-        let _ = window.show();
+        if let Err(e) = window.show() {
+            log_line(&format!("popup: show failed: {e}"));
+        }
         let _ = window.set_focus();
     }
 }
@@ -783,15 +818,9 @@ fn main() {
             set_settings,
             close_popup
         ])
-        .on_window_event(|w, e| {
-            if w.label() == "popup" {
-                if let tauri::WindowEvent::Focused(false) = e {
-                    if let Some(p) = w.app_handle().get_webview_window("popup") {
-                        destroy_popup(&p);
-                    }
-                }
-            }
-        })
+        // Zamykanie po kliknieciu obok robi frontend (window 'blur'). Zdarzenie Focused(false)
+        // z Tauri przychodzi na Windows takze wtedy, gdy fokus przechodzi do WebView2 w srodku
+        // okna - zamykalo popup zaraz po otwarciu.
         .setup(|app| {
             let first = !settings_path().exists();
             if first {
